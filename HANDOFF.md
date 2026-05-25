@@ -86,3 +86,14 @@ Not deployed (per the task). To deploy, the main agent should:
 1. `npm run build` in `/home/user/workspace/moment`
 2. Start the prod server on port 5000: `NODE_ENV=production node dist/index.cjs`
 3. `deploy_website(project_path="moment/dist/public", site_name="moment", entry_point="index.html")`
+
+## Mobile / cross-origin API
+The frontend reads `VITE_API_BASE_URL` at build time. When set, all `/api/...`
+calls go to that absolute origin; when unset, the existing relative-path
+behavior (with the `__PORT_5000__` Perplexity-preview rewrite) is preserved.
+
+The Express server enables CORS via `cors`. Configure with `CORS_ORIGIN` or
+`ALLOWED_ORIGINS` (comma-separated, or `*`). In production with neither set,
+cross-origin is disallowed; in dev it reflects the request origin.
+
+See `MOBILE.md` → "Backend / API" for the full Capacitor build flow.

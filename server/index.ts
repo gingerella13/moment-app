@@ -1,12 +1,34 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
 const app = express();
 const httpServer = createServer(app);
+
+// CORS — controlled by env. Comma-separated list of allowed origins via
+// CORS_ORIGIN or ALLOWED_ORIGINS. Use "*" to allow any origin. In development
+// (and when neither var is set), default to reflecting the request origin so
+// Vite previews and Capacitor live-reload work without extra config.
+const corsEnv = (process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS || "").trim();
+const allowedOrigins = corsEnv
+  ? corsEnv.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+const corsOriginOption: cors.CorsOptions["origin"] = corsEnv === "*"
+  ? true
+  : allowedOrigins.length > 0
+    ? (origin, cb) => {
+        if (!origin) return cb(null, true);
+        cb(null, allowedOrigins.includes(origin));
+      }
+    : process.env.NODE_ENV === "production"
+      ? false
+      : true;
+
+app.use(cors({ origin: corsOriginOption, credentials: true }));
 
 declare module "http" {
   interface IncomingMessage {

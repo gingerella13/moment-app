@@ -110,16 +110,63 @@ npm run mobile:sync
 
 ### Backend / API
 
-The mobile shell loads the bundled `dist/public` and calls `/api/...` paths.
-For a production build that runs without `npm run dev`, you need to either:
+The mobile shell loads the bundled `dist/public` from a `capacitor://localhost`
+(iOS) or `https://localhost` (Android) origin, so relative `/api/...` paths
+will not reach your server. You must point the client at an absolute backend
+URL **before** building the web bundle, and enable CORS on the backend so the
+WebView origin can call it.
 
-1. Point the client at an absolute backend URL (and configure CORS on the
-   server), **or**
-2. Serve `dist/public` from the same origin as the API (recommended for the
-   web build) and run the mobile app against that public origin.
+#### 1. Deploy the backend
 
-This is **not configured yet** — the current mobile build is suitable for local
-verification only. Wire this up before submitting to either app store.
+Deploy the Express server (`npm run start` after `npm run build`) somewhere
+reachable over HTTPS — Fly.io, Render, Railway, Cloud Run, a VPS behind a
+reverse proxy, etc. You'll need its public origin, e.g.
+`https://moment-api.example.com`. Choosing/deploying that host is out of
+scope for this repo — pick one before shipping a real build.
+
+#### 2. Set `VITE_API_BASE_URL` before building the web bundle
+
+`VITE_API_BASE_URL` is read at build time by Vite. Set it in `.env` (or
+inline) so that `npm run mobile:build` / `npm run mobile:sync` bakes the
+absolute backend origin into the bundle:
+
+```bash
+# .env
+VITE_API_BASE_URL=https://moment-api.example.com
+```
+
+```bash
+npm run mobile:build    # vite build (with VITE_API_BASE_URL baked in)
+npm run mobile:sync     # vite build + cap sync (copies into ios/ and android/)
+```
+
+If `VITE_API_BASE_URL` is unset, the client falls back to relative `/api`
+paths (correct for the local dev server and the Replit/Perplexity preview),
+which **will not work inside the native shell**.
+
+#### 3. Configure CORS on the backend
+
+Set one of `CORS_ORIGIN` or `ALLOWED_ORIGINS` to a comma-separated list of
+origins allowed to call the API. Include the Capacitor WebView origins plus
+any web origin you also serve the client from:
+
+```bash
+CORS_ORIGIN=capacitor://localhost,https://localhost,https://moment.example.com
+```
+
+Use `CORS_ORIGIN=*` to allow any origin (simpler, less strict). When neither
+var is set, the server reflects the request origin in development and
+disallows cross-origin requests in production.
+
+#### 4. Build in Xcode / Android Studio
+
+```bash
+npm run mobile:ios       # opens ios/App/App.xcworkspace
+npm run mobile:android   # opens android/ in Android Studio
+```
+
+From there, set signing/team, bump versions, and produce the release archive
+(iOS Archive → App Store Connect; Android signed AAB → Play Console).
 
 ---
 

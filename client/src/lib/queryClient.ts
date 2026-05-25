@@ -1,6 +1,20 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+function computeApiBase(): string {
+  const fromEnv = import.meta.env?.VITE_API_BASE_URL as string | undefined;
+  if (fromEnv && fromEnv.trim()) {
+    return fromEnv.trim().replace(/\/+$/, "");
+  }
+  return "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+}
+
+const API_BASE = computeApiBase();
+
+function buildUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  if (!API_BASE) return path;
+  return `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -14,7 +28,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(`${API_BASE}${url}`, {
+  const res = await fetch(buildUrl(url), {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -30,7 +44,8 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`);
+    const path = queryKey.map((part) => String(part)).join("/");
+    const res = await fetch(buildUrl(path));
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
