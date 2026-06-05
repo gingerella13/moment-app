@@ -1,115 +1,131 @@
 # Moment
 
-**A quiet space to pause, notice, and return to yourself.**
+> *A quiet space to pause, notice, and return to yourself.*
 
-Moment is a structured self-reflection app built as a full-stack portfolio project. It guides users through a brief, repeatable session: a 60-second breathing exercise, three focused reflection prompts, and an optional integration note — then saves the session privately for later review.
+Moment is a full-stack TypeScript application that guides users through a structured three-minute self-reflection session. It ships as both a web app and a native mobile shell for iOS and Android.
 
-The app was designed mobile-first and ships as both a progressive web app and a native mobile shell (iOS + Android via Capacitor).
-
----
-
-## The Problem It Solves
-
-Most journaling and wellness apps are either too open-ended (blank page anxiety) or too prescriptive (endless questionnaires). Moment takes a third path: a three-minute, three-question session with a grounding exercise at the start. No gamification, no streaks, no social layer — just a quiet, repeatable practice.
-
-The design constraint was deliberate: the app should feel like a deep breath, not a productivity tool.
+This project was built as a portfolio piece to demonstrate end-to-end product delivery: architecture decisions, API design, database schema, authentication, mobile packaging, accessibility, and automated testing — the same concerns that matter in enterprise SaaS implementation at scale.
 
 ---
 
-## Live Demo
+## The Problem
 
-> Deployment instructions are in [`HANDOFF.md`](HANDOFF.md). A live instance can be spun up locally in under five minutes — see [Local Setup](#local-setup) below.
+Most journaling and wellness apps fail at the edges of adoption. They are either too open-ended (blank page paralysis) or too prescriptive (questionnaire fatigue). Neither model produces a repeatable habit.
 
----
+Moment is built around a single constraint: a session should feel like a deep breath, not a task. Three prompts. Sixty seconds of guided breathing first. No streaks, no notifications, no social layer. The feature surface is deliberately minimal — because the goal is friction reduction, not feature completeness.
 
-## Features
-
-- **Guided breathing exercise** — 60-second animated breathing pulse (4s inhale / 4s exhale cycle) with a live phase label and countdown. Users can skip if they prefer to go straight to prompts.
-- **Three structured reflection prompts** — "What are you feeling right now?", "Where do you feel it in your body?", "What's the hardest thing right now?" — each with optional example hints.
-- **Optional integration note** — A post-prompt space to capture one insight before finishing.
-- **Session archive** — Chronological list of all saved sessions with full detail view, edit, and delete.
-- **Optional account attachment** — After completing a session, users are gently prompted (never blocked) to save their name and email. Previously saved guest sessions can be claimed by a verified Supabase auth user.
-- **Mobile app packaging** — Capacitor wraps the web client for iOS and Android distribution with no client-side persistence changes.
+This mirrors a core principle in SaaS implementation: **time-to-value is the most important metric**. Every screen that isn't necessary is a screen that delays the outcome the user came for.
 
 ---
 
-## Tech Stack
+## Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend framework | React 18 + TypeScript |
-| Routing | wouter (hash routing for Capacitor compatibility) |
-| UI components | shadcn/ui + Radix UI primitives |
-| Styling | Tailwind CSS v3 (custom warm-neutral design system) |
-| Backend | Node.js + Express |
-| Database ORM | Drizzle ORM |
-| Database | SQLite via better-sqlite3 |
-| Auth | Supabase (magic link + OAuth) |
-| Mobile packaging | Capacitor v7 (iOS + Android) |
-| Build tooling | Vite (client) + esbuild (server) |
-| End-to-end testing | Playwright |
-| Validation | Zod (shared schema, client + server) |
+| Layer | Technology | Why |
+|---|---|---|
+| Language | TypeScript (strict) | End-to-end type safety across client, server, and shared schema |
+| Frontend | React 18 + Vite | Component model, fast dev iteration, Vite's native ESM for quick builds |
+| Routing | wouter (hash-based) | Hash routing is required for Capacitor's `capacitor://localhost` WebView origin — relative paths break in native shells |
+| UI Components | shadcn/ui + Radix UI | Unstyled, accessible primitives owned in the codebase rather than imported from a black box |
+| Styling | Tailwind CSS v3 | Custom design token system, no external theme dependency |
+| Backend | Node.js + Express | Minimal surface area, easy to reason about, fast startup |
+| ORM | Drizzle ORM | Type-safe queries, shared schema with the client, zero runtime magic |
+| Database | SQLite (better-sqlite3) | See [Why SQLite](#why-sqlite-not-postgres) |
+| Auth | Supabase (magic link) | See [Why Supabase](#why-supabase-not-roll-your-own) |
+| Mobile | Capacitor v7 | See [Why Capacitor](#why-capacitor-not-react-native) |
+| Validation | Zod | Single schema definition shared by client and server — no duplication, no drift |
+| Testing | Playwright (E2E) | Full user journey automation at desktop and mobile viewports |
 
 ---
 
 ## Architecture
 
 ```
-moment-app/
-├── client/              # React frontend (Vite)
-│   └── src/
-│       ├── components/  # Shell, Logo, PromptScreen, shadcn/ui
-│       ├── pages/       # Welcome, Grounding, 3 Prompts, Integration, Completion, Archive, SessionDetail
-│       ├── lib/         # sessionStore (React context), supabase client, queryClient
-│       └── index.css    # Warm-neutral design tokens, breathe keyframe
-├── server/              # Express backend
-│   ├── index.ts         # Server entry point
-│   ├── routes.ts        # REST API: GET/POST/PATCH/DELETE /api/sessions
-│   ├── storage.ts       # IStorage interface + SQLite implementation
-│   └── static.ts        # Static file serving
-├── shared/
-│   └── schema.ts        # Drizzle table definition + Zod schemas (shared client/server)
-├── android/             # Capacitor Android project
-├── ios/                 # Capacitor iOS project
-├── HANDOFF.md           # Developer handoff notes, deployment steps, known limitations
-└── MOBILE.md            # Capacitor build flow, CORS configuration, app store prerequisites
+┌─────────────────────────────────────────────────────────┐
+│                    Client (React 18)                    │
+│                                                         │
+│  Welcome → Expectations → Grounding → 3 Prompts        │
+│       → Integration → Completion → Archive              │
+│                                                         │
+│  ┌─────────────────┐    ┌──────────────────────────┐   │
+│  │  SessionStore   │    │  AuthStore (Supabase)    │   │
+│  │  (React context │    │  Magic link + JWT token  │   │
+│  │   in-flight     │    │  stored in memory only   │   │
+│  │   sessions)     │    └──────────────────────────┘   │
+│  └─────────────────┘                                   │
+└────────────────────────┬────────────────────────────────┘
+                         │ REST over HTTPS
+                         │ (relative /api in dev,
+                         │  VITE_API_BASE_URL in mobile)
+┌────────────────────────▼────────────────────────────────┐
+│                  Server (Express)                       │
+│                                                         │
+│  GET/POST/PATCH/DELETE  /api/sessions                   │
+│  POST                   /api/sessions/claim             │
+│                                                         │
+│  Zod validation on every request body                   │
+│  IStorage interface — swappable persistence layer       │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│              SQLite via Drizzle ORM                     │
+│                                                         │
+│  sessions table: id, createdAt, feeling, body,          │
+│  hardest, integration, ownerId, ownerName, ownerEmail   │
+│                                                         │
+│  WAL mode enabled — safe for concurrent reads           │
+│  Self-creating table — zero migration required          │
+└─────────────────────────────────────────────────────────┘
+
+─────────────────────────────────────────────────────────
+Mobile path (Capacitor v7)
+─────────────────────────────────────────────────────────
+
+  vite build → dist/public → cap sync → ios/ + android/
+  Native shell loads dist/public from capacitor://localhost
+  API calls routed to absolute VITE_API_BASE_URL
+  CORS configured on Express for WebView origins
 ```
 
-The session draft (in-progress data) lives in React context only — a deliberate choice. Finished sessions are persisted server-side. No `localStorage`, `sessionStorage`, `indexedDB`, or cookies are used anywhere in the application.
+**Session data flow:** The in-progress session (draft) lives in React context only — never written to `localStorage`, `sessionStorage`, `indexedDB`, or any browser storage. Refreshing during a session resets it. This is deliberate: a three-minute reflection that survives a page refresh would need to handle partial state recovery, which adds complexity with no meaningful user benefit. Completed sessions are written to SQLite server-side immediately on submission.
 
 ---
 
-## Data Model
+## Key Technical Decisions
 
-```typescript
-// shared/schema.ts
-sessions {
-  id          integer   PRIMARY KEY AUTOINCREMENT
-  createdAt   integer   NOT NULL   // unix ms
-  feeling     text      NOT NULL   // Prompt 1 response
-  body        text      NOT NULL   // Prompt 2 response
-  hardest     text      NOT NULL   // Prompt 3 response
-  integration text      NOT NULL   // Optional reflection note
-  ownerId     text                 // Supabase user ID (nullable)
-  ownerName   text                 // Optional display name
-  ownerEmail  text                 // Used for guest session claiming
-}
-```
+### Why SQLite, Not Postgres
 
----
+Most full-stack tutorials default to Postgres. For this project, SQLite is the right choice and the reasoning is instructive:
 
-## REST API
+- **Single-user prototype with a known access pattern** — one writer at a time, reads vastly outnumber writes, dataset is small. SQLite in WAL mode handles this with zero infrastructure.
+- **Zero operational overhead** — no connection pool to configure, no database server to manage, no environment variables beyond the file path. The storage layer creates the table on first run via `CREATE TABLE IF NOT EXISTS`.
+- **Deployment simplicity** — the entire database ships as a single file. For a hosted deployment, this means one fewer managed service.
+- **Drizzle ORM abstracts the difference** — the `IStorage` interface in `server/storage.ts` means swapping to Postgres is a one-file change. The schema definition in `shared/schema.ts` and all query logic remain identical.
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/sessions` | List all sessions (filter by `ownerId`, `ownerEmail`, or `guest=true`) |
-| `POST` | `/api/sessions` | Create a new session |
-| `GET` | `/api/sessions/:id` | Retrieve a single session |
-| `PATCH` | `/api/sessions/:id` | Update a session (attach integration note or account info) |
-| `DELETE` | `/api/sessions/:id` | Delete a session |
-| `POST` | `/api/sessions/claim` | Claim guest sessions by email for a verified Supabase user |
+In enterprise SaaS delivery, this maps to a real principle: **start with the simplest persistence layer that satisfies the actual requirements, not the most scalable one**. Over-engineering the database tier is one of the most common causes of implementation delays.
 
-All request bodies are validated against a shared Zod schema. Invalid input returns `400` with structured error details.
+### Why Supabase, Not Roll-Your-Own Auth
+
+Authentication is the highest-risk component in any application. The two most common failure modes in enterprise implementations are (1) rolling custom auth and introducing security vulnerabilities, and (2) over-engineering an auth system that becomes a maintenance burden.
+
+Supabase was chosen for specific reasons:
+
+- **Magic link auth eliminates password management entirely** — no password storage, no reset flows, no brute-force protection to implement. The Supabase `/auth/v1/otp` endpoint handles all of it.
+- **The JWT token stays in memory** — `authStore.tsx` reads the access token from the URL hash on callback and holds it in React state. It is never written to `localStorage`. If the tab closes, the session ends. This is a deliberate security tradeoff appropriate for a personal reflection app.
+- **Guest-first, auth-optional design** — users complete sessions with no auth requirement. After completion, they are gently prompted to attach an email. If they do, the `POST /api/sessions/claim` endpoint migrates their guest sessions to their verified account by matching `ownerEmail` to the Supabase `ownerId`. Auth enhances the experience — it never gates it.
+- **Graceful degradation** — `isSupabaseConfigured` checks for valid env vars at startup. The entire auth flow is disabled cleanly when Supabase isn't configured. The app is fully functional without it.
+
+Compared to alternatives: Firebase Auth would have worked but adds a heavier SDK dependency and Google lock-in. Auth0 is well-suited for enterprise but is disproportionate for a solo project. NextAuth requires Next.js. Supabase hits the right point on the capability-vs-complexity curve for this project scope.
+
+### Why Capacitor, Not React Native
+
+The mobile decision was between rewriting the UI in React Native or wrapping the existing web app. Capacitor won for clear reasons:
+
+- **Single codebase** — the same React components, Tailwind styles, and API calls run in the browser and inside the native shell. No platform-specific component variants, no bridging layer between web and native UI primitives.
+- **Web-first deployment** — the app is usable as a PWA before any native build is involved. Capacitor is additive, not a requirement.
+- **The UX is already mobile-first** — the design was built at 375px first. There is no interaction model that requires native UI primitives (no camera, no GPS, no Bluetooth). A WebView shell is appropriate.
+- **Capacitor's WebView isolation** — `capacitor://localhost` (iOS) and `https://localhost` (Android) mean the WebView has a real origin, which makes CORS and cookie behavior predictable. This required one specific decision: hash routing via `wouter` instead of HTML5 history routing, because hash URLs survive across the WebView/backend boundary without server-side routing support.
+
+The tradeoff acknowledged: Capacitor apps cannot match native performance for animation-heavy or sensor-heavy use cases. For Moment, the only animation is the breathing pulse — a CSS `@keyframes` animation — which performs identically in a WebView.
 
 ---
 
@@ -118,22 +134,24 @@ All request bodies are validated against a shared Zod schema. Invalid input retu
 **Prerequisites:** Node.js 18+, npm
 
 ```bash
-# 1. Clone the repo
+# Clone
 git clone https://github.com/gingerella13/moment-app.git
 cd moment-app
 
-# 2. Install dependencies
+# Install
 npm install
 
-# 3. (Optional) Configure environment variables
+# (Optional) Configure Supabase auth
 cp .env.example .env
-# Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY for auth
-# Leave blank to run without auth (guest sessions only)
+# Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+# Leave unset to run in guest-only mode
 
-# 4. Start the development server
+# Start dev server
 npm run dev
-# Opens at http://localhost:5000
+# http://localhost:5000
 ```
+
+The SQLite database (`data.db`) is created automatically on first run.
 
 **Production build:**
 
@@ -142,90 +160,121 @@ npm run build
 NODE_ENV=production node dist/index.cjs
 ```
 
-The SQLite database (`data.db`) is created automatically on first run. No migration step required — the storage layer self-creates the `sessions` table via `CREATE TABLE IF NOT EXISTS`.
+**Run type checks:**
+
+```bash
+npm run check
+```
 
 ---
 
-## Mobile (iOS / Android)
-
-The web client is packaged as a native mobile app using Capacitor v7. The mobile shell loads the bundled frontend and communicates with a separately deployed backend.
+## Mobile Build
 
 ```bash
-# Build the web client
-npm run mobile:build
-
-# Sync to native projects
+# Build web assets and sync to native projects
 npm run mobile:sync
 
-# Open in Xcode (iOS)
+# Open in Xcode (iOS — requires macOS)
 npm run mobile:ios
 
 # Open in Android Studio
 npm run mobile:android
 ```
 
-See [`MOBILE.md`](MOBILE.md) for the full build flow, CORS configuration, and app store prerequisites.
+For mobile builds pointing at a deployed backend, set `VITE_API_BASE_URL` before building:
+
+```bash
+VITE_API_BASE_URL=https://your-api.example.com npm run mobile:sync
+```
+
+Configure `CORS_ORIGIN` on the Express server to include `capacitor://localhost` and `https://localhost`.
+
+Full prerequisites (Xcode, CocoaPods, Android Studio, signing certificates) are documented in [`MOBILE.md`](MOBILE.md).
 
 ---
 
 ## Accessibility
 
-Accessibility was treated as a first-class requirement, not an afterthought:
+Accessibility was specified and verified as a first-class requirement:
 
-- **Keyboard navigable** — all interactive elements reachable and operable via keyboard
-- **Focus ring** — visible `2px outline-offset: 3px` in primary color at 55% alpha; never suppressed
-- **`aria-live="polite"`** — applied to the breath phase label (`Inhale` / `Exhale`) so screen reader users receive live updates during the grounding exercise
-- **`aria-label`** — applied to the logo SVG and timer countdown
-- **`prefers-reduced-motion`** — the breathing animation and page settle-in transition are fully disabled for users who have requested reduced motion
-- **`data-testid`** — applied to every interactive control and dynamic display element to support reliable automated testing
+| Decision | Implementation | Rationale |
+|---|---|---|
+| Keyboard navigation | All interactive elements reachable and operable via tab + enter/space | WCAG 2.1 AA requirement; also required for enterprise software procurement in many regulated industries |
+| Visible focus ring | `2px outline-offset: 3px` in primary color at 55% alpha, never suppressed | Default browser outlines are suppressed by most UI resets — the focus ring was explicitly re-implemented |
+| Live breath phase | `aria-live="polite"` on the Inhale/Exhale label | Screen reader users receive live updates during the 60-second grounding exercise without an intrusive `assertive` announcement |
+| Animation safety | `breathe` keyframe and `settle-in` page transition fully disabled under `prefers-reduced-motion: reduce` | Required for users with vestibular disorders; also best practice for enterprise deployments on accessibility-audited platforms |
+| Semantic labels | `aria-label` on the SVG logo and countdown timer | SVG and numeric-only elements have no implicit accessible name |
+| Test hooks | `data-testid` on every interactive control and dynamic display element | Decouples test selectors from visual structure — tests don't break when styling changes |
 
 ---
 
 ## Testing
 
-End-to-end tests were written with Playwright and cover the full user journey:
+End-to-end tests written with Playwright cover the complete user journey in sequence:
 
 ```
-Welcome -> Expectations -> Grounding (skip) -> Feeling -> Body -> Hardest
--> Integration -> Completion -> Signup (skip) -> Archive (1 entry) -> Session Detail
+Welcome -> Expectations -> Grounding (skip) -> Feeling (prompt 1)
+-> Body (prompt 2) -> Hardest (prompt 3) -> Integration
+-> Completion -> Signup (skip) -> Archive -> Session Detail
 ```
 
-All four saved fields render correctly in Session Detail. No console errors across the full flow.
+Verified: all four saved fields render correctly in Session Detail with correct labels. Zero console errors across the full flow.
 
-QA screenshots were captured at both desktop (1280×800) and mobile (375×812) breakpoints for every route.
+QA screenshots captured at:
+- Desktop: 1280 × 800
+- Mobile: 375 × 812
 
-API CRUD operations were verified independently via curl:
-- `list` — returns empty array on fresh database
-- `create` — returns the new session with generated `id` and `createdAt`
-- `get` — returns the correct session by ID
-- `patch` — updates `ownerName`/`ownerEmail` correctly
-- `delete` — removes the session and returns 404 on subsequent get
+All 11 routes covered at both viewports.
+
+**API verification (curl):**
+
+```bash
+# Create
+curl -s -X POST http://localhost:5000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"feeling":"heaviness","body":"chest","hardest":"sitting still","integration":"noticed it"}' | jq .
+
+# List
+curl -s http://localhost:5000/api/sessions | jq .
+
+# Patch (attach account)
+curl -s -X PATCH http://localhost:5000/api/sessions/1 \
+  -H "Content-Type: application/json" \
+  -d '{"ownerName":"Ginger","ownerEmail":"ginger@example.com"}' | jq .
+
+# Delete
+curl -s -X DELETE http://localhost:5000/api/sessions/1 | jq .
+```
 
 ---
 
-## Design System
+## What I Learned — Implementation Lessons for Enterprise SaaS Delivery
 
-The visual design uses a custom warm-neutral palette defined as CSS custom properties — no off-the-shelf theme.
+Building Moment end-to-end surfaced several patterns that map directly to enterprise implementation work.
 
-| Token | Value | Purpose |
-|---|---|---|
-| `--background` | HSL `40 28% 96%` | Warm paper-white surface |
-| `--foreground` | HSL `30 12% 14%` | Deep ink text (never pure black) |
-| `--primary` | HSL `18 28% 44%` | Muted clay accent — CTAs and focus only |
-| `--muted-foreground` | HSL `30 8% 42%` | Secondary text, helper copy |
+**Shared schema as the source of truth eliminates entire categories of bugs.** The Zod schema in `shared/schema.ts` is consumed by both the Express request validator and the React form layer. When the schema changes, TypeScript surfaces every affected call site at compile time — not at runtime, not in production. In enterprise SaaS implementations, integration failures between client and server are one of the most common root causes of go-live delays. A shared contract removes the ambiguity.
 
-Typography uses **Source Serif 4** for prompts, headings, and the wordmark; **Inter** for all UI elements. The breathing animation (`breathe` keyframe) runs an 8-second cycle — 4s inhale, 4s exhale — across three concentric layers with staggered animation delays to create a natural pulse effect.
+**Auth-optional architecture accelerates adoption.** The guest-first model — complete sessions freely, attach an account later — mirrors a principle that applies at enterprise scale: **never gate the core value behind a setup step that isn't strictly necessary at that moment**. In SaaS onboarding, requiring SSO configuration, data migration, or admin approval before a user can touch the product is a leading cause of implementation stall. Moment's auth model was designed to demonstrate the opposite approach.
+
+**The `IStorage` interface made the persistence layer swappable without touching application logic.** Defining an explicit `IStorage` interface before writing any SQL meant the storage implementation could change (SQLite today, Postgres tomorrow) without touching `routes.ts` or any client code. This is the same pattern that matters when integrating with enterprise systems — abstract the external dependency behind an interface, so a vendor change or API version upgrade doesn't propagate through the entire codebase.
+
+**Mobile cross-origin is a first-class problem, not an afterthought.** The Capacitor WebView loads assets from `capacitor://localhost`, which is a different origin than the Express backend. CORS had to be explicitly configured and `VITE_API_BASE_URL` had to be baked into the build. In enterprise implementations, cross-origin and cross-environment issues (dev vs. staging vs. production, API gateway vs. direct service, SSO redirect URIs) are consistently underestimated. Solving it in a controlled environment first built familiarity with the failure mode.
+
+**Documentation written for the next person, not the current one.** `HANDOFF.md` and `MOBILE.md` were written assuming the next developer has zero context. Known limitations are listed explicitly. Deployment steps are sequential and complete. Build artifacts are identified. This discipline — documenting what doesn't work as carefully as what does — is what separates implementations that transfer cleanly from ones that create ongoing support burden.
 
 ---
 
-## Known Limitations
+## Project Status
 
-- **Single-user prototype** — no real auth scope on the archive. All sessions are visible regardless of who saved them. V2 would scope the archive to the authenticated user.
-- **Fresh deploy = empty database** — SQLite is local to the server process. Redeployments start with an empty `data.db` unless the file is persisted externally.
-- **Guest sessions are non-blocking** — a user can complete any number of sessions without ever signing up. The signup prompt after completion is a gentle suggestion, not a gate.
+MVP complete. Tested and documented. Not deployed (see `HANDOFF.md` for deployment steps and known limitations).
+
+**Planned V2 work:**
+- Scoped archive — filter sessions by authenticated user instead of showing all
+- Supabase Realtime for session sync across devices
+- Offline support via service worker and sync-on-reconnect
 
 ---
 
 ## Author
 
-**Ginger Banegas** — SaaS Implementation Professional | [LinkedIn](https://www.linkedin.com/in/gingerbanegas/)
+**Ginger Banegas** — SaaS Implementation Professional | [LinkedIn](https://www.linkedin.com/in/gingerbanegas/) | [GitHub](https://github.com/gingerella13)
